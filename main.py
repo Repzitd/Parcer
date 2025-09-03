@@ -38,11 +38,11 @@ def display_currency_list():
     for i, (code, name) in enumerate(currencies, 1):
         print(f"{i}. {name.title()} ({code})")
 
-def select_currency(choise: str) -> str:
+def select_currency(prompt: str) -> str:
     """Позволяет выбрать валюту по номеру из списка"""
     while True:
         try:
-            choice = int(input(choise))
+            choice = int(input(prompt))
             if 1 <= choice <= len(currencies):
                 return currencies[choice - 1][0]
             else:
