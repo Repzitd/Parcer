@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Конвертер валют ЦБ РФ</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+body {
+    background-color: #f8f9fa;
+    padding-top: 50px;
+}
+.container {
+    max-width: 600px;
+    background-color: #fff;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+h2 {
+    margin-bottom: 30px;
+    text-align: center;
+}
+#result {
+    margin-top: 20px;
+    font-weight: bold;
+    transition: color 0.8s ease, background-color 0.8s ease;
+    padding: 10px;
+    border-radius: 8px;
+}
+#chartContainer {
+    margin-top: 30px;
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>Конвертер валют</h2>
+
+    <div class="mb-3">
+        <label for="fromCurrency" class="form-label">Из валюты:</label>
+        <select id="fromCurrency" class="form-select">
+            {% for code, name in currencies %}
+            <option value="{{ code }}">{{ name.title() }} ({{ code }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="toCurrency" class="form-label">В валюту:</label>
+        <select id="toCurrency" class="form-select">
+            {% for code, name in currencies %}
+            <option value="{{ code }}">{{ name.title() }} ({{ code }})</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="mb-3">
+        <label for="dateInput" class="form-label">Дата курса (дд.мм.гггг):</label>
+        <input type="text" id="dateInput" class="form-control" placeholder="например, 22.09.2025" maxlength="10">
+    </div>
+
+    <div class="mb-3">
+        <label for="amountInput" class="form-label">Сумма:</label>
+        <input type="number" id="amountInput" class="form-control" value="1" step="0.01" min="0">
+    </div>
+
+    <button class="btn btn-primary w-100" onclick="convert()">Конвертировать</button>
+    <div id="result"></div>
+
+    <div id="chartContainer">
+        <canvas id="rateChart"></canvas>
+    </div>
+</div>
+
+<script>
+// Автоподстановка точек
+const dateInput = document.getElementById("dateInput");
+dateInput.addEventListener("input", function() {
+    let val = this.value.replace(/\D/g,'');
+    if(val.length > 2 && val[2] !== '.') val = val.slice(0,2) + '.' + val.slice(2);
+    if(val.length > 5 && val[5] !== '.') val = val.slice(0,5) + '.' + val.slice(5);
+    this.value = val.slice(0,10);
+});
+
+function isLeapYear(year) {
+    return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+function isValidDate(day, month, year) {
+    if(month < 1 || month > 12) return false;
+    if(day < 1) return false;
+    const daysInMonth = [31, isLeapYear(year)?29:28, 31,30,31,30,31,31,30,31,30,31];
+    return day <= daysInMonth[month-1];
+}
+
+// Анимация числа
+function animateValue(element, start, end, duration) {
+    let startTimestamp = null;
+    const step = (timestamp) => {
+        if (!startTimestamp) startTimestamp = timestamp;
+        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+        element.textContent = (start + (end - start) * progress).toFixed(2);
+        if (progress < 1) window.requestAnimationFrame(step);
+    };
+    window.requestAnimationFrame(step);
+}
+
+let chart = null;
+
+function drawChart(labels, data, from, to) {
+    const ctx = document.getElementById("rateChart").getContext("2d");
+    if(chart) chart.destroy();
+    chart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: labels,
+            datasets: [{
+                label: `Курс ${from}/${to} за 30 дней`,
+                data: data,
+                borderColor: "blue",
+                backgroundColor: "rgba(0,0,255,0.1)",
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { beginAtZero: false }
+            }
+        }
+    });
+}
+
+function convert() {
+    const from = document.getElementById("fromCurrency").value;
+    const to = document.getElementById("toCurrency").value;
+    const amount = parseFloat(document.getElementById("amountInput").value);
+
+    if(isNaN(amount) || amount < 0){
+        alert("Сумма не может быть отрицательной");
+        return;
+    }
+
+    const dateInputValue = dateInput.value.trim();
+    let formattedDate = '';
+    if(dateInputValue){
+        const match = dateInputValue.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+        if(!match){
+            alert("Введите дату в формате дд.мм.гггг");
+            return;
+        }
+        const day = parseInt(match[1],10);
+        const month = parseInt(match[2],10);
+        const year = parseInt(match[3],10);
+
+        if(!isValidDate(day, month, year)){
+            alert("Неверная дата, проверьте день, месяц и год");
+            return;
+        }
+        formattedDate = `${match[1]}.${match[2]}.${match[3]}`;
+    }
+
+    fetch(`/convert?from=${from}&to=${to}&amount=${amount}&date=${formattedDate}`)
+    .then(response => response.json())
+    .then(data => {
+        const resultDiv = document.getElementById("result");
+
+        let diffColor = "black";
+        if (data.rate_difference > 0) diffColor = "green";
+        else if (data.rate_difference < 0) diffColor = "red";
+        resultDiv.style.color = diffColor;
+
+        resultDiv.style.backgroundColor = "#fff3cd";
+        resultDiv.innerHTML = `${data.amount} ${data.from} = <span id="animatedResult"></span> ${data.to} <br>
+        (Разница с текущим курсом: ${data.rate_difference.toFixed(4)} ${data.to}, ${data.rate_difference_percent.toFixed(2)}%)`;
+
+        const animatedResult = document.getElementById("animatedResult");
+        animateValue(animatedResult, 0, data.result, 800);
+
+        setTimeout(() => {
+            resultDiv.style.backgroundColor = "#ffffff";
+        }, 200);
+
+        // Загружаем историю и рисуем график
+        fetch(`/history?from=${from}&to=${to}`)
+        .then(r => r.json())
+        .then(history => {
+            const labels = history.map(h => h.date);
+            const values = history.map(h => h.rate);
+            drawChart(labels, values, from, to);
+        });
+    })
+    .catch(err => {
+        const resultDiv = document.getElementById("result");
+        resultDiv.style.color = "black";
+        resultDiv.style.backgroundColor = "#f8d7da";
+        resultDiv.innerHTML = "Ошибка при получении данных";
+        setTimeout(() => {
+            resultDiv.style.backgroundColor = "#ffffff";
+        }, 200);
+    });
+}
+</script>
+</body>
+</html>
